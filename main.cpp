@@ -50,16 +50,20 @@ public:
   }
 };
 
-TEST(should_return_42) {
-  Jit jit(4096);
-
+int make_constant(int value) {
   // Example:
   // int x() {
-  //   return 42;
+  //   return value;
   // }
+  Jit jit(4096);
+
   u8 code[] = {
-      x86_64_Instr::MOV, 0x2A, 0x00, 0x00, 0x00, // mov eax, 42
-      x86_64_Instr::RET,                         // ret
+      x86_64_Instr::MOV,      //
+      static_cast<u8>(value), //
+      0x00,                   //
+      0x00,                   //
+      0x00,                   // mov eax, value
+      x86_64_Instr::RET,      // ret
   };
 
   // Copy the code to the JIT memory
@@ -72,9 +76,13 @@ TEST(should_return_42) {
   JitFunction func = reinterpret_cast<JitFunction>(jit.data());
 
   // Call the function
-  int result = func();
-  
-  ASSERT(result == 42);
+  return func();
+}
+
+TEST(should_correctly_return_constant) {
+  ASSERT_EQ(make_constant(0), 0);
+  ASSERT_EQ(make_constant(42), 42);
+  ASSERT_EQ(make_constant(100), 100);
 }
 
 TEST_MAIN();
