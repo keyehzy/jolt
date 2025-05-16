@@ -5,10 +5,17 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include "simple_tdd.h"
+
 typedef int64_t i64;
 typedef uint8_t u8;
 
 typedef int (*JitFunction)();
+
+struct x86_64_Instr {
+  static const u8 MOV = 0xB8; // Move immediate to register
+  static const u8 RET = 0xC3; // Return from function
+};
 
 class Jit {
 private:
@@ -43,17 +50,16 @@ public:
   }
 };
 
-int main() {
-  size_t size = 4096;
-  Jit jit(size);
+TEST(should_return_42) {
+  Jit jit(4096);
 
   // Example:
   // int x() {
   //   return 42;
   // }
-  unsigned char code[] = {
-      0xB8,  0x2A, 0x00, 0x00, 0x00, // mov eax, 42
-      0xC3,
+  u8 code[] = {
+      x86_64_Instr::MOV, 0x2A, 0x00, 0x00, 0x00, // mov eax, 42
+      x86_64_Instr::RET,                         // ret
   };
 
   // Copy the code to the JIT memory
@@ -67,8 +73,8 @@ int main() {
 
   // Call the function
   int result = func();
-
-  // Print the result
-  std::cout << "Result: " << result << std::endl;
-  return 0;
+  
+  ASSERT(result == 42);
 }
+
+TEST_MAIN();
