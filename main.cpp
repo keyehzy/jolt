@@ -80,8 +80,16 @@ struct x86_64_Instr {
     return {REXW, ADD_IMM_X, 0xC4, imm};
   }
 
-  static std::vector<u8> mov_to_stack_offset_imm32(u8 offset, u32 imm) {
+  static std::vector<u8> mov_stack_offset_imm32(u8 offset, u32 imm) {
     return {REXW, MOV_IMM_X, 0x04, offset, expand_imm32(imm)};
+  }
+
+  static std::vector<u8> add_rax_from_stack_offset(u8 offset) {
+    return {REXW, ADD_MEM_X, 0x04, offset};
+  }
+
+  static std::vector<u8> mov_rax_from_stack_offset(u8 offset) {
+    return {REXW, MOV_MEM_X, 0x04, offset};
   }
 };
 
@@ -94,6 +102,8 @@ class AsmStream {
   }
 
   void append(std::initializer_list<u8> lst) { code_.insert(code_.end(), lst); }
+
+  void append(u8 code) { code_.push_back(code); }
 
   u8 *data() { return code_.data(); }
 
@@ -116,17 +126,9 @@ class AsmStream {
     append(x86_64_Instr::add_rsp_imm_8(static_cast<u8>(count)));
   }
 
-  void function_epilogue() {
-    append({
-        x86_64_Instr::POP_RBP,
-    });
-  }
+  void function_epilogue() { append(x86_64_Instr::POP_RBP); }
 
-  void function_return() {
-    append({
-        x86_64_Instr::RET,
-    });
-  }
+  void function_return() { append(x86_64_Instr::RET); }
 
  private:
   std::vector<u8> code_;
@@ -182,13 +184,7 @@ i64 make_identity(i64 value) {
       0x24,                   // mov    QWORD PTR [rsp],rdi
   });
 
-  code.append({
-      // Move parameter (RDI) to RAX
-      x86_64_Instr::REXW,       //
-      x86_64_Instr::MOV_MEM_X,  //
-      0x04,                     //
-      0x24,                     // mov    rax,QWORD PTR [rsp]
-  });
+  code.append(x86_64_Instr::mov_rax_from_stack_offset(0x24));
 
   code.restore_stack(16);
   code.function_epilogue();
@@ -220,7 +216,7 @@ i64 make_increment(i64 value) {
   code.function_prologue();
   code.reserve_stack(16);
 
-  code.append(x86_64_Instr::mov_to_stack_offset_imm32(0x24, 1));
+  code.append(x86_64_Instr::mov_stack_offset_imm32(0x24, 1));
 
   code.append({
       // Move parameter (RDI) to RAX
@@ -229,13 +225,7 @@ i64 make_increment(i64 value) {
       0xF8,                   // mov rax,rdi
   });
 
-  code.append({
-      // Add the increment value to RAX
-      x86_64_Instr::REXW,       //
-      x86_64_Instr::ADD_MEM_X,  //
-      0x04,                     //
-      0x24,                     // add rax,QWORD PTR [rsp]
-  });
+  code.append(x86_64_Instr::add_rax_from_stack_offset(0x24));
 
   code.restore_stack(16);
   code.function_epilogue();
