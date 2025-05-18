@@ -4,8 +4,8 @@
 #include <cstdint>
 #include <cstring>
 #include <initializer_list>
-#include <iostream>
 #include <stdexcept>
+#include <vector>
 
 #include "simple_tdd.h"
 
@@ -71,7 +71,23 @@ struct x86_64_Instr {
 
   static const u8 RET = 0xC3;  // Return from function
 
+  enum class Reg : u8 {
+    RAX = 0,
+    RCX = 1,
+    RDX = 2,
+    RBX = 3,
+    RSP = 4,
+    RBP = 5,
+    RSI = 6,
+    RDI = 7,
+  };
+
   // Functions
+  static std::vector<u8> mov(Reg reg1, Reg reg2) {
+    return {REXW, MOV_REG,
+            (static_cast<u8>(reg1) << 3) | static_cast<u8>(reg2) | 0xC0};
+  }
+
   static std::vector<u8> sub_rsp_imm_8(u8 imm) {
     return {REXW, SUB_IMM_X, 0xEC, imm};
   }
@@ -110,12 +126,8 @@ class AsmStream {
   size_t size() { return code_.size(); }
 
   void function_prologue() {
-    append({
-        x86_64_Instr::PUSH_RBP,  //
-        x86_64_Instr::REXW,      //
-        x86_64_Instr::MOV_REG,   //
-        0xE5,                    // mov rbp,rsp
-    });
+    append(x86_64_Instr::PUSH_RBP);
+    append(x86_64_Instr::mov(x86_64_Instr::Reg::RBP, x86_64_Instr::Reg::RSP));
   }
 
   void reserve_stack(size_t count) {
@@ -218,12 +230,8 @@ i64 make_increment(i64 value) {
 
   code.append(x86_64_Instr::mov_stack_offset_imm32(0x24, 1));
 
-  code.append({
-      // Move parameter (RDI) to RAX
-      x86_64_Instr::REXW,     //
-      x86_64_Instr::MOV_REG,  //
-      0xF8,                   // mov rax,rdi
-  });
+  code.append(
+      x86_64_Instr::mov(x86_64_Instr::Reg::RAX, x86_64_Instr::Reg::RDI));
 
   code.append(x86_64_Instr::add_rax_from_stack_offset(0x24));
 
