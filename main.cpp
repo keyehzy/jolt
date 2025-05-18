@@ -102,46 +102,60 @@ i64 make_identity(i64 value) {
   // }
   Jit jit(4096);
 
-  u8 code[] = {
-      // Prologue
-      x86_64_Instr::PUSH_RBP, //
-      x86_64_Instr::REXW,     //
-      x86_64_Instr::MOV_REG,  //
-      0xE5,                   // mov rbp,rsp
+  std::vector<u8> code;
 
-      // Reserve stack space
-      x86_64_Instr::REXW,      //
-      x86_64_Instr::SUB_IMM_X, //
-      0xEC,                    //
-      0x10,                    // sub rsp, 16
+  code.insert(code.end(), {
+    // Prologue
+    x86_64_Instr::PUSH_RBP, //
+    x86_64_Instr::REXW,     //
+    x86_64_Instr::MOV_REG,  //
+    0xE5,                   // mov rbp,rsp
+  });
 
-      // Store the parameter (RDI) at [rsp]
-      x86_64_Instr::REXW,    //
-      x86_64_Instr::MOV_REG, //
-      0x3C,                  //
-      0x24,                  // mov    QWORD PTR [rsp],rdi
+  code.insert(code.end(), {
+    // Reserve stack space
+    x86_64_Instr::REXW,      //
+    x86_64_Instr::SUB_IMM_X, //
+    0xEC,                    //
+    0x10,                    // sub rsp, 16
+  });
 
-      // Move parameter (RDI) to RAX
-      x86_64_Instr::REXW,      //
-      x86_64_Instr::MOV_MEM_X, //
-      0x04,                    //
-      0x24,                    // mov    rax,QWORD PTR [rsp]
+  code.insert(code.end(), {
+    // Store the parameter (RDI) at [rsp]
+    x86_64_Instr::REXW,    //
+    x86_64_Instr::MOV_REG, //
+    0x3C,                  //
+    0x24,                  // mov    QWORD PTR [rsp],rdi
+  });
 
-      // Restore the stack pointer
-      x86_64_Instr::REXW,      //
-      x86_64_Instr::ADD_IMM_X, //
-      0xC4,                    //
-      0x10,                    // Value to add (16)
+  code.insert(code.end(), {
+    // Move parameter (RDI) to RAX
+    x86_64_Instr::REXW,      //
+    x86_64_Instr::MOV_MEM_X, //
+    0x04,                    //
+    0x24,                    // mov    rax,QWORD PTR [rsp]
+  });
 
-      // Epilogue
-      x86_64_Instr::POP_RBP,
+  code.insert(code.end(), {
+    // Restore the stack pointer
+    x86_64_Instr::REXW,      //
+    x86_64_Instr::ADD_IMM_X, //
+    0xC4,                    //
+    0x10,                    // Value to add (16)
+  });
 
-      // Return
-      x86_64_Instr::RET,
-  };
+  code.insert(code.end(), {
+    // Epilogue
+    x86_64_Instr::POP_RBP,
+  });
+
+  code.insert(code.end(), {
+    // Return
+    x86_64_Instr::RET,
+  });;
 
   // Copy the code to the JIT memory
-  std::memcpy(jit.data(), code, sizeof(code));
+  std::memcpy(jit.data(), code.data(), code.size());
 
   // Make the memory executable
   jit.finalize();
@@ -162,19 +176,25 @@ i64 make_increment(i64 value) {
   // }
   Jit jit(4096);
 
-  u8 code[] = {
+  std::vector<u8> code;
+
+  code.insert(code.end(), {
       // Prologue
       x86_64_Instr::PUSH_RBP, //
       x86_64_Instr::REXW,     //
       x86_64_Instr::MOV_REG,  //
-      0xE5,                   //
+      0xE5,                   // mov rbp,rsp
+  });
 
+  code.insert(code.end(), {
       // Reserve stack space
       x86_64_Instr::REXW,      //
       x86_64_Instr::SUB_IMM_X, //
-      0xEC,                    // ModR/M byte for RSP as destination
+      0xEC,                    //
       0x10,                    // sub rsp, 16
+  });
 
+  code.insert(code.end(), {
       // Store the increment value (1) at [rsp]
       x86_64_Instr::REXW,      //
       x86_64_Instr::MOV_IMM_X, //
@@ -184,33 +204,43 @@ i64 make_increment(i64 value) {
       0x0,                     //
       0x0,                     //
       0x0,                     // mov QWORD PTR [rsp], 1
-
+  });
+  
+  code.insert(code.end(), {
       // Move parameter (RDI) to RAX
       x86_64_Instr::REXW,    //
       x86_64_Instr::MOV_REG, //
-      0xF8,                  //
+      0xF8,                  // mov rax,rdi
+  });
 
+  code.insert(code.end(), {
       // Add the increment value to RAX
       x86_64_Instr::REXW,      //
       x86_64_Instr::ADD_MEM_X, //
       0x04,                    //
-      0x24,                    //
+      0x24,                    // add rax,QWORD PTR [rsp]
+  });
 
+  code.insert(code.end(), {
       // Restore the stack pointer
       x86_64_Instr::REXW,      //
       x86_64_Instr::ADD_IMM_X, //
       0xC4,                    //
       0x10,                    // Value to add (16)
+  });
 
+  code.insert(code.end(), {
       // Epilogue
       x86_64_Instr::POP_RBP,
+  });
 
+  code.insert(code.end(), {
       // Return
       x86_64_Instr::RET,
-  };
+  });
 
   // Copy the code to the JIT memory
-  std::memcpy(jit.data(), code, sizeof(code));
+  std::memcpy(jit.data(), code.data(), code.size());
 
   // Make the memory executable
   jit.finalize();
