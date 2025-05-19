@@ -1,12 +1,17 @@
 #include <fcntl.h>
 
+#include <array>
 #include <cstring>
 #include <initializer_list>
+#include <stdexcept>
 #include <vector>
 
 #include "int_type.h"
 #include "jit.h"
 #include "simple_tdd.h"
+
+#define todo()        __builtin_trap()
+#define unreachable() __builtin_trap()
 
 template <typename T, typename U>
 constexpr T narrow_cast(U &&u) noexcept {
@@ -58,6 +63,7 @@ enum class Reg : u8 {
 };
 
 enum class Operand_Type : u8 {
+  None,
   Register,
   Memory,
   Immediate,
@@ -84,9 +90,9 @@ enum class Operand_Encoding_Type : u8 {
 };
 
 struct Instruction_Encoding {
-  u16                        opcode;
+  u16 opcode;
   Instruction_Extension_Type instr_extension_type;
-  Operand_Encoding_Type      operand_encoding_type[2];
+  std::array<Operand_Encoding_Type, 2> operand_encoding_type;
 };
 
 const std::vector<Instruction_Encoding> MOV = {
@@ -105,21 +111,45 @@ const std::vector<Instruction_Encoding> RET = {
 
 struct Instruction {
   std::vector<Instruction_Encoding> mnemonic;
-  Operand                           operand[2];
+  std::array<Operand, 2> operands;
 };
 
 // Functions
 std::vector<u8> encode(Instruction instruction) {
+  std::vector<u8> buf;
   for (const auto &encoding : instruction.mnemonic) {
-    std::vector<u8> buf;
-    buf.push_back(REXW);
+    for (size_t i = 0; i < instruction.operands.size(); ++i) {
+      Operand_Encoding_Type operand_encoding_type = encoding.operand_encoding_type[i];
+      Operand_Type operand_type                   = instruction.operands[i].type;
+      if (operand_type == Operand_Type::None && operand_encoding_type == Operand_Encoding_Type::None) {
+        continue;
+      }
+      if (operand_type == Operand_Type::Register &&
+          ((operand_encoding_type == Operand_Encoding_Type::Register_Memory) ||
+           (operand_encoding_type == Operand_Encoding_Type::Register))) {
+        continue;
+      }
+      unreachable();
+    }
+
+    bool requires_modrm = false;
+    for (size_t i = 0; i < instruction.operands.size(); ++i) {
+      Operand_Type operand_type = instruction.operands[i].type;
+      if (operand_type == Operand_Type::Register) {
+        requires_modrm = true;
+        buf.push_back(REXW);
+        break;
+      }
+    }
     buf.push_back(encoding.opcode);
-    buf.push_back((static_cast<u8>(MOD::Register_Adressing) << 6) | (static_cast<u8>(instruction.operand[0].reg) << 3) |
-                  static_cast<u8>(instruction.operand[1].reg));
-    return buf;
+
+    if (requires_modrm) {
+      u8 modrm = (static_cast<u8>(MOD::Register_Adressing) << 6) | (static_cast<u8>(instruction.operands[0].reg) << 3) |
+                 static_cast<u8>(instruction.operands[1].reg);
+      buf.push_back(modrm);
+    }
   }
-  // TODO
-  return {};
+  return buf;
 }
 
 // std::vector<u8> mov(Reg reg1, Reg reg2) {
@@ -156,8 +186,8 @@ class Asm_Buffer {
 
   void function_prologue() {
     append(x86_64::PUSH_RBP);
-    x86_64::Operand     rbp = {x86_64::Operand_Type::Register, {x86_64::Reg::RBP}};
-    x86_64::Operand     rsp = {x86_64::Operand_Type::Register, {x86_64::Reg::RSP}};
+    x86_64::Operand rbp     = {x86_64::Operand_Type::Register, {x86_64::Reg::RBP}};
+    x86_64::Operand rsp     = {x86_64::Operand_Type::Register, {x86_64::Reg::RSP}};
     x86_64::Instruction mov = {x86_64::MOV, {rbp, rsp}};
     append(x86_64::encode(mov));
   }
@@ -265,8 +295,8 @@ i64 make_increment(i64 value) {
 
   code.append(x86_64::mov_stack_offset_imm32(0x24, 1));
 
-  x86_64::Operand     rbp = {x86_64::Operand_Type::Register, {x86_64::Reg::RAX}};
-  x86_64::Operand     rsp = {x86_64::Operand_Type::Register, {x86_64::Reg::RDI}};
+  x86_64::Operand rbp     = {x86_64::Operand_Type::Register, {x86_64::Reg::RAX}};
+  x86_64::Operand rsp     = {x86_64::Operand_Type::Register, {x86_64::Reg::RDI}};
   x86_64::Instruction mov = {x86_64::MOV, {rbp, rsp}};
   code.append(x86_64::encode(mov));
 
