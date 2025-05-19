@@ -1,121 +1,141 @@
-#include <sys/mman.h>
-#include <unistd.h>
+#include <fcntl.h>
 
-#include <cstdint>
 #include <cstring>
 #include <initializer_list>
-#include <stdexcept>
 #include <vector>
 
+#include "int_type.h"
+#include "jit.h"
 #include "simple_tdd.h"
 
-typedef int32_t i32;
-typedef uint32_t u32;
-typedef uint64_t u64;
-typedef int64_t i64;
-typedef uint16_t u16;
-typedef int16_t i16;
-typedef uint8_t u8;
-typedef int8_t i8;
+template <typename T, typename U>
+constexpr T narrow_cast(U &&u) noexcept {
+  return static_cast<T>(std::forward<U>(u));
+}
 
-class Jit {
- public:
-  Jit(size_t size) : size_(size) {
-    // Allocate memory with read, write, and execute permissions
-    data_ = mmap(nullptr, size, PROT_READ | PROT_WRITE | PROT_EXEC,
-                 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+namespace x86_64 {
+#define expand_imm32(x) \
+  static_cast<u8>(x >> 0), static_cast<u8>(x >> 8), static_cast<u8>(x >> 16), static_cast<u8>(x >> 24)
 
-    if (data_ == MAP_FAILED) {
-      throw std::runtime_error("Memory allocation failed");
-    }
-  }
+const u8 REXW      = 0x48;  // REX prefix for 64-bit operand size
+const u8 MOV_REG   = 0x89;  // Move register to register
+const u8 MOV_MEM_X = 0x8B;  // Move memory to register/memory
+const u8 MOV_IMM_X = 0xC7;  // Move immediate to register/memory
 
-  ~Jit() {
-    if (data_ != MAP_FAILED) {
-      munmap(data_, size_);
-    }
-  }
+const u8 ADD_IMM_X = 0x83;  // Add sign-extended immediate to register
+const u8 ADD_MEM_X = 0x03;  // Add register to memory
 
-  void *data() { return data_; }
+const u8 SUB_IMM_X = 0x83;  // Subtract immediate from register/memory
 
-  size_t size() { return size_; }
+const u8 PUSH_RBP = 0x55;  // Push RBP onto the stack
+const u8 POP_RBP  = 0x5D;  // Pop RBP from the stack
 
-  void finalize() {
-    if (mprotect(data_, size_, PROT_READ | PROT_EXEC) != 0) {
-      throw std::runtime_error("Failed to change memory protection");
-    }
-  }
+const u8 RET = 0xC3;  // Return from function
 
- private:
-  void *data_;
-  size_t size_;
+enum class MOD : u8 {
+  Zero_Byte_Displacement = 0b00,
+  One_Byte_Displacement  = 0b01,
+  Four_Byte_Displacement = 0b10,
+  Register_Adressing     = 0b11,
 };
 
-#define expand_imm32(x)                                                       \
-  static_cast<u8>(x >> 0), static_cast<u8>(x >> 8), static_cast<u8>(x >> 16), \
-      static_cast<u8>(x >> 24)
+enum class REX : u8 {
+  W = 0b01010000,  // 0 - Operand size determined by CS.D; 1 - 64 Bit Operand Size
+  R = 0b01000100,  // Extension of the ModR/M reg field
+  X = 0b01000010,  // Extension of the SIB index field
+  B = 0b01000001,  // Extension of the ModR/M r/m field, SIB base field, or Opcode reg field
+};
 
-struct x86_64_Instr {
-  static const u8 REXW = 0x48;       // REX prefix for 64-bit operand size
-  static const u8 MOV_REG = 0x89;    // Move register to register
-  static const u8 MOV_MEM_X = 0x8B;  // Move memory to register/memory
-  static const u8 MOV_IMM_X = 0xC7;  // Move immediate to register/memory
+enum class Reg : u8 {
+  RAX = 0b000,
+  RCX = 0b001,
+  RDX = 0b010,
+  RBX = 0b011,
+  RSP = 0b100,
+  RBP = 0b101,
+  RSI = 0b110,
+  RDI = 0b111,
+};
 
-  static const u8 ADD_IMM_X = 0x83;  // Add sign-extended immediate to register
-  static const u8 ADD_MEM_X = 0x03;  // Add register to memory
+enum class Operand_Type : u8 {
+  Register,
+  Memory,
+  Immediate,
+};
 
-  static const u8 SUB_IMM_X = 0x83;  // Subtract immediate from register/memory
+struct Operand {
+  Operand_Type type;
+  union {
+    Reg reg;
+    u32 imm;
+  };
+};
 
-  static const u8 PUSH_RBP = 0x55;  // Push RBP onto the stack
-  static const u8 POP_RBP = 0x5D;   // Pop RBP from the stack
+enum class Mnemonic : u8 {
+  MOV,
+};
 
-  static const u8 RET = 0xC3;  // Return from function
+struct Instruction {
+  Mnemonic mnemonic;
+  Operand  operand[2];
+};
 
-  enum class Reg : u8 {
-    RAX = 0,
-    RCX = 1,
-    RDX = 2,
-    RBX = 3,
-    RSP = 4,
-    RBP = 5,
-    RSI = 6,
-    RDI = 7,
+enum class Instruction_Extension_Type : u8 {
+  Register,
+  Op_Code,
+};
+
+enum class Operand_Encoding_Type : u8 {
+  Register,
+  Register_Memory,
+  Immediate,
+};
+
+struct Instruction_Encoding {
+  u16                        opcode;
+  Instruction_Extension_Type instr_extension_type;
+  Operand_Encoding_Type      operand_encoding_type[2];
+};
+
+// Functions
+std::vector<u8> encode(Instruction instruction) {
+  Instruction_Encoding encoding = {
+      0x89,
+      Instruction_Extension_Type::Register,
+      {Operand_Encoding_Type::Register_Memory, Operand_Encoding_Type::Register},
   };
 
-  // Functions
-  static std::vector<u8> mov(Reg reg1, Reg reg2) {
-    return {REXW, MOV_REG,
-            (static_cast<u8>(reg1) << 3) | static_cast<u8>(reg2) | 0xC0};
-  }
+  std::vector<u8> buf;
+  buf.push_back(REXW);
+  buf.push_back(encoding.opcode);
+  buf.push_back((static_cast<u8>(MOD::Register_Adressing) << 6) | (static_cast<u8>(instruction.operand[0].reg) << 3) |
+                static_cast<u8>(instruction.operand[1].reg));
+  return buf;
+}
 
-  static std::vector<u8> sub_rsp_imm_8(u8 imm) {
-    return {REXW, SUB_IMM_X, 0xEC, imm};
-  }
+// std::vector<u8> mov(Reg reg1, Reg reg2) {
+//   return {REXW, MOV_REG,
+//           (static_cast<u8>(MOD::Register_Adressing) << 6) | (static_cast<u8>(reg1) << 3) | static_cast<u8>(reg2)};
+// }
 
-  static std::vector<u8> add_rsp_imm_8(u8 imm) {
-    return {REXW, ADD_IMM_X, 0xC4, imm};
-  }
+std::vector<u8> sub_rsp_imm_8(u8 imm) { return {REXW, SUB_IMM_X, 0xEC, imm}; }
 
-  static std::vector<u8> mov_stack_offset_imm32(u8 offset, u32 imm) {
-    return {REXW, MOV_IMM_X, 0x04, offset, expand_imm32(imm)};
-  }
+std::vector<u8> add_rsp_imm_8(u8 imm) { return {REXW, ADD_IMM_X, 0xC4, imm}; }
 
-  static std::vector<u8> add_rax_from_stack_offset(u8 offset) {
-    return {REXW, ADD_MEM_X, 0x04, offset};
-  }
+std::vector<u8> mov_stack_offset_imm32(u8 offset, u32 imm) {
+  return {REXW, MOV_IMM_X, 0x04, offset, expand_imm32(imm)};
+}
 
-  static std::vector<u8> mov_rax_from_stack_offset(u8 offset) {
-    return {REXW, MOV_MEM_X, 0x04, offset};
-  }
-};
+std::vector<u8> add_rax_from_stack_offset(u8 offset) { return {REXW, ADD_MEM_X, 0x04, offset}; }
 
-class AsmStream {
+std::vector<u8> mov_rax_from_stack_offset(u8 offset) { return {REXW, MOV_MEM_X, 0x04, offset}; }
+}  // namespace x86_64
+
+class Asm_Buffer {
  public:
-  AsmStream() = default;
+  Asm_Buffer() = default;
 
-  void append(const std::vector<u8> &code) {
-    code_.insert(code_.end(), code.begin(), code.end());
-  }
+  void append(const std::vector<u8> &code) { code_.insert(code_.end(), code.begin(), code.end()); }
 
   void append(std::initializer_list<u8> lst) { code_.insert(code_.end(), lst); }
 
@@ -126,21 +146,20 @@ class AsmStream {
   size_t size() { return code_.size(); }
 
   void function_prologue() {
-    append(x86_64_Instr::PUSH_RBP);
-    append(x86_64_Instr::mov(x86_64_Instr::Reg::RBP, x86_64_Instr::Reg::RSP));
+    append(x86_64::PUSH_RBP);
+    x86_64::Operand     rbp = {x86_64::Operand_Type::Register, {x86_64::Reg::RBP}};
+    x86_64::Operand     rsp = {x86_64::Operand_Type::Register, {x86_64::Reg::RSP}};
+    x86_64::Instruction mov = {x86_64::Mnemonic::MOV, {rbp, rsp}};
+    append(x86_64::encode(mov));
   }
 
-  void reserve_stack(size_t count) {
-    append(x86_64_Instr::sub_rsp_imm_8(static_cast<u8>(count)));
-  }
+  void reserve_stack(size_t count) { append(x86_64::sub_rsp_imm_8(static_cast<u8>(count))); }
 
-  void restore_stack(size_t count) {
-    append(x86_64_Instr::add_rsp_imm_8(static_cast<u8>(count)));
-  }
+  void restore_stack(size_t count) { append(x86_64::add_rsp_imm_8(static_cast<u8>(count))); }
 
-  void function_epilogue() { append(x86_64_Instr::POP_RBP); }
+  void function_epilogue() { append(x86_64::POP_RBP); }
 
-  void function_return() { append(x86_64_Instr::RET); }
+  void function_return() { append(x86_64::RET); }
 
  private:
   std::vector<u8> code_;
@@ -155,11 +174,11 @@ int make_constant(int value) {
   Jit jit(4096);
 
   u8 code[] = {
-      x86_64_Instr::REXW,       //
-      x86_64_Instr::MOV_IMM_X,  //
-      0xC0,                     //
-      expand_imm32(value),      //
-      x86_64_Instr::RET,        // ret
+      x86_64::REXW,         //
+      x86_64::MOV_IMM_X,    //
+      0xC0,                 //
+      expand_imm32(value),  //
+      x86_64::RET,          // ret
   };
 
   // Copy the code to the JIT memory
@@ -183,20 +202,20 @@ i64 make_identity(i64 value) {
   // }
   Jit jit(4096);
 
-  AsmStream code;
+  Asm_Buffer code;
 
   code.function_prologue();
   code.reserve_stack(16);
 
   code.append({
       // Store the parameter (RDI) at [rsp]
-      x86_64_Instr::REXW,     //
-      x86_64_Instr::MOV_REG,  //
-      0x3C,                   //
-      0x24,                   // mov    QWORD PTR [rsp],rdi
+      x86_64::REXW,     //
+      x86_64::MOV_REG,  //
+      0x3C,             //
+      0x24,             // mov    QWORD PTR [rsp],rdi
   });
 
-  code.append(x86_64_Instr::mov_rax_from_stack_offset(0x24));
+  code.append(x86_64::mov_rax_from_stack_offset(0x24));
 
   code.restore_stack(16);
   code.function_epilogue();
@@ -224,16 +243,18 @@ i64 make_increment(i64 value) {
   // }
   Jit jit(4096);
 
-  AsmStream code;
+  Asm_Buffer code;
   code.function_prologue();
   code.reserve_stack(16);
 
-  code.append(x86_64_Instr::mov_stack_offset_imm32(0x24, 1));
+  code.append(x86_64::mov_stack_offset_imm32(0x24, 1));
 
-  code.append(
-      x86_64_Instr::mov(x86_64_Instr::Reg::RAX, x86_64_Instr::Reg::RDI));
+  x86_64::Operand     rbp = {x86_64::Operand_Type::Register, {x86_64::Reg::RAX}};
+  x86_64::Operand     rsp = {x86_64::Operand_Type::Register, {x86_64::Reg::RDI}};
+  x86_64::Instruction mov = {x86_64::Mnemonic::MOV, {rbp, rsp}};
+  code.append(x86_64::encode(mov));
 
-  code.append(x86_64_Instr::add_rax_from_stack_offset(0x24));
+  code.append(x86_64::add_rax_from_stack_offset(0x24));
 
   code.restore_stack(16);
   code.function_epilogue();
