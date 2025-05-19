@@ -1,11 +1,11 @@
 CXX=g++
 CXXFLAGS=-std=c++20 -g -Wall -Wextra -pedantic
 
-main : main.o
-	$(CXX) $(CXXFLAGS) -o main main.o
+SRCS= main.cpp x86_64.cpp
+OBJS= $(SRCS:.cpp=.o)
 
-main.o : main.cpp
-	$(CXX) $(CXXFLAGS) -c main.cpp
+main: $(OBJS)
+	$(CXX) $(CXXFLAGS) -o $@ $^
 
-clean :
-	rm -f main.o main
+clean:
+	rm -f $(OBJS) main
