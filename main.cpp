@@ -30,7 +30,7 @@ const u8 SUB_IMM_X = 0x83;  // Subtract immediate from register/memory
 const u8 PUSH_RBP = 0x55;  // Push RBP onto the stack
 const u8 POP_RBP  = 0x5D;  // Pop RBP from the stack
 
-const u8 RET = 0xC3;  // Return from function
+// const u8 RET = 0xC3;  // Return from function
 
 enum class MOD : u8 {
   Zero_Byte_Displacement = 0b00,
@@ -71,21 +71,13 @@ struct Operand {
   };
 };
 
-enum class Mnemonic : u8 {
-  MOV,
-};
-
-struct Instruction {
-  Mnemonic mnemonic;
-  Operand  operand[2];
-};
-
 enum class Instruction_Extension_Type : u8 {
   Register,
   Op_Code,
 };
 
 enum class Operand_Encoding_Type : u8 {
+  None,
   Register,
   Register_Memory,
   Immediate,
@@ -97,20 +89,37 @@ struct Instruction_Encoding {
   Operand_Encoding_Type      operand_encoding_type[2];
 };
 
+const std::vector<Instruction_Encoding> MOV = {
+    {
+        {0x89,
+         Instruction_Extension_Type::Register,
+         {Operand_Encoding_Type::Register_Memory, Operand_Encoding_Type::Register}},
+    },
+};
+
+const std::vector<Instruction_Encoding> RET = {
+    {
+        {0xC3, Instruction_Extension_Type::Register, {Operand_Encoding_Type::None, Operand_Encoding_Type::None}},
+    },
+};
+
+struct Instruction {
+  std::vector<Instruction_Encoding> mnemonic;
+  Operand                           operand[2];
+};
+
 // Functions
 std::vector<u8> encode(Instruction instruction) {
-  Instruction_Encoding encoding = {
-      0x89,
-      Instruction_Extension_Type::Register,
-      {Operand_Encoding_Type::Register_Memory, Operand_Encoding_Type::Register},
-  };
-
-  std::vector<u8> buf;
-  buf.push_back(REXW);
-  buf.push_back(encoding.opcode);
-  buf.push_back((static_cast<u8>(MOD::Register_Adressing) << 6) | (static_cast<u8>(instruction.operand[0].reg) << 3) |
-                static_cast<u8>(instruction.operand[1].reg));
-  return buf;
+  for (const auto &encoding : instruction.mnemonic) {
+    std::vector<u8> buf;
+    buf.push_back(REXW);
+    buf.push_back(encoding.opcode);
+    buf.push_back((static_cast<u8>(MOD::Register_Adressing) << 6) | (static_cast<u8>(instruction.operand[0].reg) << 3) |
+                  static_cast<u8>(instruction.operand[1].reg));
+    return buf;
+  }
+  // TODO
+  return {};
 }
 
 // std::vector<u8> mov(Reg reg1, Reg reg2) {
@@ -149,7 +158,7 @@ class Asm_Buffer {
     append(x86_64::PUSH_RBP);
     x86_64::Operand     rbp = {x86_64::Operand_Type::Register, {x86_64::Reg::RBP}};
     x86_64::Operand     rsp = {x86_64::Operand_Type::Register, {x86_64::Reg::RSP}};
-    x86_64::Instruction mov = {x86_64::Mnemonic::MOV, {rbp, rsp}};
+    x86_64::Instruction mov = {x86_64::MOV, {rbp, rsp}};
     append(x86_64::encode(mov));
   }
 
@@ -159,7 +168,10 @@ class Asm_Buffer {
 
   void function_epilogue() { append(x86_64::POP_RBP); }
 
-  void function_return() { append(x86_64::RET); }
+  void function_return() {
+    x86_64::Instruction ret = {x86_64::RET, {}};
+    append(x86_64::encode(ret));
+  }
 
  private:
   std::vector<u8> code_;
@@ -173,16 +185,20 @@ int make_constant(int value) {
   // }
   Jit jit(4096);
 
-  u8 code[] = {
+  Asm_Buffer code;
+
+  code.append({
       x86_64::REXW,         //
       x86_64::MOV_IMM_X,    //
       0xC0,                 //
-      expand_imm32(value),  //
-      x86_64::RET,          // ret
-  };
+      expand_imm32(value),  // mov   rax, imm32
+  });
+
+  x86_64::Instruction ret = {x86_64::RET, {}};
+  code.append(x86_64::encode(ret));
 
   // Copy the code to the JIT memory
-  std::memcpy(jit.data(), code, sizeof(code));
+  std::memcpy(jit.data(), code.data(), code.size());
 
   // Make the memory executable
   jit.finalize();
@@ -251,7 +267,7 @@ i64 make_increment(i64 value) {
 
   x86_64::Operand     rbp = {x86_64::Operand_Type::Register, {x86_64::Reg::RAX}};
   x86_64::Operand     rsp = {x86_64::Operand_Type::Register, {x86_64::Reg::RDI}};
-  x86_64::Instruction mov = {x86_64::Mnemonic::MOV, {rbp, rsp}};
+  x86_64::Instruction mov = {x86_64::MOV, {rbp, rsp}};
   code.append(x86_64::encode(mov));
 
   code.append(x86_64::add_rax_from_stack_offset(0x24));
