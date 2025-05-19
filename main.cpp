@@ -29,6 +29,13 @@ class Asm_Buffer {
     append(x86_64::encode(ret));
   }
 
+  void dump() {
+    for (size_t i = 0; i < code_.size(); ++i) {
+      printf("%02X ", code_[i]);
+    }
+    printf("\n");
+  }
+
  private:
   std::vector<u8> code_;
 };
@@ -43,15 +50,8 @@ int make_constant(int value) {
 
   Asm_Buffer code;
 
-  code.append({
-      x86_64::REXW,         //
-      x86_64::MOV_IMM_X,    //
-      0xC0,                 //
-      expand_imm32(value),  // mov   rax, imm32
-  });
-
-  x86_64::Instruction ret = {x86_64::RET, {}};
-  code.append(x86_64::encode(ret));
+  code.append({x86_64::encode({x86_64::MOV, {x86_64::RAX, x86_64::imm32(value)}})});
+  code.append(x86_64::encode({x86_64::RET, {}}));
 
   // Copy the code to the JIT memory
   std::memcpy(jit.data(), code.data(), code.size());
@@ -118,19 +118,17 @@ i64 make_increment(i64 value) {
   Asm_Buffer code;
   code.function_prologue();
   code.reserve_stack(16);
+  //   code.append(x86_64::mov_stack_offset_imm32(0x8, 1));
 
-  code.append(x86_64::mov_stack_offset_imm32(0x24, 1));
-
-  x86_64::Operand rbp     = {x86_64::Operand_Type::Register, {x86_64::Reg::RAX}};
-  x86_64::Operand rsp     = {x86_64::Operand_Type::Register, {x86_64::Reg::RDI}};
-  x86_64::Instruction mov = {x86_64::MOV, {rbp, rsp}};
-  code.append(x86_64::encode(mov));
-
-  code.append(x86_64::add_rax_from_stack_offset(0x24));
+  code.append(x86_64::encode({x86_64::MOV, {x86_64::RAX, x86_64::RDI}}));  // Load y into RAX
+  code.append(x86_64::mov_stack_offset_imm32(0x8, 1));                     // MOV [RSP + 0x8], 1 (lower 32 bits)
+  code.append(x86_64::mov_stack_offset_imm32(0xC, 0));                     // MOV [RSP + 0xC], 0 (upper 32 bits)
+  code.append(x86_64::add_rax_from_stack_offset(0x8));
 
   code.restore_stack(16);
   code.function_epilogue();
   code.function_return();
+  code.dump();
 
   // Copy the code to the JIT memory
   std::memcpy(jit.data(), code.data(), code.size());

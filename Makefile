@@ -1,5 +1,5 @@
 CXX=g++
-CXXFLAGS=-std=c++20 -g -Wall -Wextra -pedantic
+CXXFLAGS=-std=c++20 -g3 -ggdb -Wall -Wextra -pedantic
 
 SRCS= main.cpp x86_64.cpp
 OBJS= $(SRCS:.cpp=.o)

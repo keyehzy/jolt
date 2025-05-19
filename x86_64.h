@@ -23,11 +23,18 @@ const u8 ADD_MEM_X = 0x03;  // Add register to memory
 const u8 PUSH_RBP = 0x55;  // Push RBP onto the stack
 const u8 POP_RBP  = 0x5D;  // Pop RBP from the stack
 
+enum class SIB_Scale : u8 {
+  _1 = 0b00,
+  _2 = 0b01,
+  _4 = 0b10,
+  _8 = 0b11,
+};
+
 enum class MOD : u8 {
-  Zero_Byte_Displacement = 0b00,
-  One_Byte_Displacement  = 0b01,
-  Four_Byte_Displacement = 0b10,
-  Register_Adressing     = 0b11,
+  Displacement_0     = 0b00,
+  Displacement_8     = 0b01,
+  Displacement_32    = 0b10,
+  Register_Adressing = 0b11,
 };
 
 enum class REX : u8 {
@@ -62,6 +69,13 @@ enum class Operand_Type : u8 {
   Register,
   Memory,
   Immediate_8,
+  Immediate_32,
+};
+
+struct Operand_Memory {
+  Reg base;
+  u8 scale;
+  u8 displacement;
 };
 
 struct Operand {
@@ -69,6 +83,8 @@ struct Operand {
   union {
     Reg reg;
     u8 imm8;
+    u32 imm32;
+    Operand_Memory memory;
   };
 };
 
@@ -99,6 +115,7 @@ enum class Operand_Encoding_Type : u8 {
   Register,
   Register_Memory,
   Immediate_8,
+  Immediate_32,
 };
 
 struct Instruction_Encoding {
@@ -114,14 +131,19 @@ const Mnemonic MOV = {
     {.opcode                = 0x89,
      .extension_type        = Instruction_Extension_Type::Register,
      .operand_encoding_type = {Operand_Encoding_Type::Register_Memory, Operand_Encoding_Type::Register}},
-};
+    {.opcode                = 0xC7,
+     .extension_type        = Instruction_Extension_Type::Op_Code,
+     .op_code_extension     = 0,
+     .operand_encoding_type = {Operand_Encoding_Type::Register_Memory, Operand_Encoding_Type::Immediate_32}}};
 
 const Mnemonic ADD = {
     {.opcode                = 0x83,
      .extension_type        = Instruction_Extension_Type::Op_Code,
      .op_code_extension     = 0,
      .operand_encoding_type = {Operand_Encoding_Type::Register_Memory, Operand_Encoding_Type::Immediate_8}},
-};
+    {.opcode                = 0x03,
+     .extension_type        = Instruction_Extension_Type::Register,
+     .operand_encoding_type = {Operand_Encoding_Type::Register, Operand_Encoding_Type::Register_Memory}}};
 
 const Mnemonic SUB = {
     {.opcode                = 0x83,
@@ -142,6 +164,11 @@ struct Instruction {
 };
 
 std::vector<u8> encode(Instruction instruction);
+
+Operand imm8(u8 imm);
+Operand imm32(u32 imm);
+Operand mem(Reg base, u8 scale, u8 displacement);
+Operand stack(u8 offset);
 
 std::vector<u8> sub_rsp_imm_8(u8 imm);
 std::vector<u8> add_rsp_imm_8(u8 imm);
