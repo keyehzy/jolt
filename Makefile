@@ -1,5 +1,5 @@
 CXX=g++
-CXXFLAGS=-std=c++17 -g -Wall -Wextra -pedantic
+CXXFLAGS=-std=c++20 -g -Wall -Wextra -pedantic
 
 main : main.o
 	$(CXX) $(CXXFLAGS) -o main main.o

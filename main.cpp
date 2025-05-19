@@ -1,9 +1,9 @@
 #include <fcntl.h>
 
 #include <array>
+#include <cassert>
 #include <cstring>
 #include <initializer_list>
-#include <stdexcept>
 #include <vector>
 
 #include "int_type.h"
@@ -45,7 +45,7 @@ enum class MOD : u8 {
 };
 
 enum class REX : u8 {
-  W = 0b01010000,  // 0 - Operand size determined by CS.D; 1 - 64 Bit Operand Size
+  W = 0b01001000,  // 0 - Operand size determined by CS.D; 1 - 64 Bit Operand Size
   R = 0b01000100,  // Extension of the ModR/M reg field
   X = 0b01000010,  // Extension of the SIB index field
   B = 0b01000001,  // Extension of the ModR/M r/m field, SIB base field, or Opcode reg field
@@ -66,14 +66,14 @@ enum class Operand_Type : u8 {
   None,
   Register,
   Memory,
-  Immediate,
+  Immediate_8,
 };
 
 struct Operand {
   Operand_Type type;
   union {
     Reg reg;
-    u32 imm;
+    u8 imm8;
   };
 };
 
@@ -86,27 +86,41 @@ enum class Operand_Encoding_Type : u8 {
   None,
   Register,
   Register_Memory,
-  Immediate,
+  Immediate_8,
 };
 
 struct Instruction_Encoding {
   u16 opcode;
-  Instruction_Extension_Type instr_extension_type;
+  Instruction_Extension_Type extension_type;
+  u8 op_code_extension;
   std::array<Operand_Encoding_Type, 2> operand_encoding_type;
 };
 
 const std::vector<Instruction_Encoding> MOV = {
-    {
-        {0x89,
-         Instruction_Extension_Type::Register,
-         {Operand_Encoding_Type::Register_Memory, Operand_Encoding_Type::Register}},
-    },
+    {.opcode                = 0x89,
+     .extension_type        = Instruction_Extension_Type::Register,
+     .operand_encoding_type = {Operand_Encoding_Type::Register_Memory, Operand_Encoding_Type::Register}},
+
+};
+
+const std::vector<Instruction_Encoding> ADD = {
+    {.opcode                = 0x83,
+     .extension_type        = Instruction_Extension_Type::Op_Code,
+     .op_code_extension     = 0,
+     .operand_encoding_type = {Operand_Encoding_Type::Register_Memory, Operand_Encoding_Type::Immediate_8}},
+};
+
+const std::vector<Instruction_Encoding> SUB = {
+    {.opcode                = 0x83,
+     .extension_type        = Instruction_Extension_Type::Op_Code,
+     .op_code_extension     = 5,
+     .operand_encoding_type = {Operand_Encoding_Type::Register_Memory, Operand_Encoding_Type::Immediate_8}},
 };
 
 const std::vector<Instruction_Encoding> RET = {
-    {
-        {0xC3, Instruction_Extension_Type::Register, {Operand_Encoding_Type::None, Operand_Encoding_Type::None}},
-    },
+    {.opcode                = 0xC3,
+     .extension_type        = Instruction_Extension_Type::Register,
+     .operand_encoding_type = {Operand_Encoding_Type::None, Operand_Encoding_Type::None}},
 };
 
 struct Instruction {
@@ -129,26 +143,54 @@ std::vector<u8> encode(Instruction instruction) {
            (operand_encoding_type == Operand_Encoding_Type::Register))) {
         continue;
       }
+      if (operand_type == Operand_Type::Immediate_8 && operand_encoding_type == Operand_Encoding_Type::Immediate_8) {
+        continue;
+      }
       unreachable();
     }
 
     bool requires_modrm = false;
+    u8 reg_or_op_code   = 0;
+    u8 rex_byte         = 0;
+    u8 r_m              = 0;
     for (size_t i = 0; i < instruction.operands.size(); ++i) {
-      Operand_Type operand_type = instruction.operands[i].type;
+      Operand_Type operand_type                   = instruction.operands[i].type;
+      Operand_Encoding_Type operand_encoding_type = encoding.operand_encoding_type[i];
       if (operand_type == Operand_Type::Register) {
         requires_modrm = true;
-        buf.push_back(REXW);
-        break;
+        rex_byte |= static_cast<u8>(REX::W);
+        if (operand_encoding_type == Operand_Encoding_Type::Register) {
+          assert(encoding.extension_type != Instruction_Extension_Type::Op_Code);
+          reg_or_op_code = static_cast<u8>(instruction.operands[i].reg);
+        } else if (operand_encoding_type == Operand_Encoding_Type::Register_Memory) {
+          r_m = static_cast<u8>(instruction.operands[i].reg);
+        }
       }
     }
+
+    if (encoding.extension_type == Instruction_Extension_Type::Op_Code) {
+      reg_or_op_code = encoding.op_code_extension;
+    }
+
+    if (rex_byte) {
+      buf.push_back(rex_byte);
+    }
+
     buf.push_back(encoding.opcode);
 
     if (requires_modrm) {
-      u8 modrm = (static_cast<u8>(MOD::Register_Adressing) << 6) | (static_cast<u8>(instruction.operands[0].reg) << 3) |
-                 static_cast<u8>(instruction.operands[1].reg);
+      u8 modrm = (static_cast<u8>(MOD::Register_Adressing) << 6) | (reg_or_op_code << 3) | r_m;
       buf.push_back(modrm);
     }
+
+    for (size_t i = 0; i < instruction.operands.size(); ++i) {
+      Operand_Type operand_type = instruction.operands[i].type;
+      if (operand_type == Operand_Type::Immediate_8) {
+        buf.push_back(instruction.operands[i].imm8);
+      }
+    }
   }
+
   return buf;
 }
 
@@ -157,9 +199,19 @@ std::vector<u8> encode(Instruction instruction) {
 //           (static_cast<u8>(MOD::Register_Adressing) << 6) | (static_cast<u8>(reg1) << 3) | static_cast<u8>(reg2)};
 // }
 
-std::vector<u8> sub_rsp_imm_8(u8 imm) { return {REXW, SUB_IMM_X, 0xEC, imm}; }
+std::vector<u8> sub_rsp_imm_8(u8 imm) {
+  Operand imm8            = {.type = Operand_Type::Immediate_8, .imm8 = imm};
+  Operand rsp             = {.type = Operand_Type::Register, .reg = Reg::RSP};
+  Instruction instruction = {SUB, {rsp, imm8}};
+  return encode(instruction);
+}
 
-std::vector<u8> add_rsp_imm_8(u8 imm) { return {REXW, ADD_IMM_X, 0xC4, imm}; }
+std::vector<u8> add_rsp_imm_8(u8 imm) {
+  Operand imm8            = {.type = Operand_Type::Immediate_8, .imm8 = imm};
+  Operand rsp             = {.type = Operand_Type::Register, .reg = Reg::RSP};
+  Instruction instruction = {ADD, {rsp, imm8}};
+  return encode(instruction);
+}
 
 std::vector<u8> mov_stack_offset_imm32(u8 offset, u32 imm) {
   return {REXW, MOV_IMM_X, 0x04, offset, expand_imm32(imm)};

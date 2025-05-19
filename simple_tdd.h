@@ -12,7 +12,7 @@ namespace simple_tdd {
 
 class TestResult {
  public:
-  bool        passed;
+  bool passed;
   std::string testName;
   std::string message;
 
@@ -22,9 +22,9 @@ class TestResult {
 class TestRunner {
  private:
   std::vector<std::pair<std::string, std::function<void()>>> tests;
-  std::vector<TestResult>                                    results;
-  int                                                        pass_count = 0;
-  int                                                        fail_count = 0;
+  std::vector<TestResult> results;
+  int pass_count = 0;
+  int fail_count = 0;
 
  public:
   static TestRunner &the() {
@@ -42,25 +42,17 @@ class TestRunner {
         test.second();
         ++pass_count;
         results.push_back(TestResult(true, test.first));
+        std::cout << "✓ PASS: " << test.first << std::endl;
       } catch (const std::exception &e) {
         ++fail_count;
         results.push_back(TestResult(false, test.first, e.what()));
+        std::cout << "✗ FAIL: " << test.first << std::endl;
+        std::cout << "  Error: " << e.what() << std::endl;
       }
     }
   }
 
   void print_results() {
-    std::cout << "==== Test Results ====" << std::endl;
-
-    for (const auto &result : results) {
-      if (result.passed) {
-        std::cout << "✓ PASS: " << result.testName << std::endl;
-      } else {
-        std::cout << "✗ FAIL: " << result.testName << std::endl;
-        std::cout << "  Error: " << result.message << std::endl;
-      }
-    }
-
     std::cout << "======================" << std::endl;
     std::cout << "Summary: " << pass_count << " passed, " << fail_count << " failed" << std::endl;
     std::cout << "Total tests: " << (pass_count + fail_count) << std::endl;
@@ -83,7 +75,7 @@ class AssertionFailure : public std::exception {
   const char *what() const noexcept override { return message.c_str(); }
 };
 
-static void assert(bool condition, const std::string &message = "") {
+static void Assert(bool condition, const std::string &message = "") {
   if (!condition) {
     std::stringstream ss;
     ss << "Assertion failed: expected true";
@@ -96,23 +88,23 @@ static void assert(bool condition, const std::string &message = "") {
 }  // namespace simple_tdd
 
 #define TEST(name)                                                                        \
-  void        name();                                                                     \
+  void name();                                                                            \
   static bool name##_registered = (simple_tdd::TestRunner::the().add(#name, name), true); \
-  void        name()
+  void name()
 
-#define ASSERT(condition) simple_tdd::assert(condition, #condition)
+#define ASSERT(condition) simple_tdd::Assert(condition, #condition)
 
 #define ASSERT_EQ(expected, actual) \
-  simple_tdd::assert((expected) == (actual), "Expected: " #expected ", Actual: " #actual)
+  simple_tdd::Assert((expected) == (actual), "Expected: " #expected ", Actual: " #actual)
 
 #define ASSERT_NE(expected, actual) \
-  simple_tdd::assert((expected) != (actual), "Expected: " #expected ", Actual: " #actual)
+  simple_tdd::Assert((expected) != (actual), "Expected: " #expected ", Actual: " #actual)
 
 #define ASSERT_TRUE(condition) \
-  simple_tdd::assert(condition, #condition) simple_tdd::assert((condition) == true, #condition)
+  simple_tdd::Assert(condition, #condition) simple_tdd::Assert((condition) == true, #condition)
 
 #define ASSERT_FALSE(condition) \
-  simple_tdd::assert(condition, #condition) simple_tdd::assert((condition) == false, #condition)
+  simple_tdd::Assert(condition, #condition) simple_tdd::Assert((condition) == false, #condition)
 
 #define RUN_TESTS()                              \
   simple_tdd::TestRunner::the().run();           \
